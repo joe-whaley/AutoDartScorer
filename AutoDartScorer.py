@@ -15,6 +15,7 @@
 # Import Libraries
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 import time
 
@@ -29,35 +30,34 @@ class AutoScorer():
         self.boardManager_AutoDarts = 'TODO-ADD-YOUR-BOARD-MANAGERS-URL-HERE'
         # NOTE: boardManager credentials are unique to you
 
-        # Set Up Driver
-        path = 'C:\Program Files (x86)\chromedriver.exe'
-        self.driver = webdriver.Chrome(path)
+        # Open Dart Connect (visible window)
+        dc_options = Options()
+        dc_options.add_argument("--start-maximized")  # optional
+        self.dc_driver = webdriver.Chrome(options=dc_options)
+        self.dc_driver.get(self.url_DartConnect)
 
-        # Open Dart Connect
-        self.driver.get(self.url_DartConnect)
-        self.dartConnectWindow = self.driver.current_window_handle
-
-        # Open Autodarts Board Manager
-        self.driver.switch_to.new_window()
-        self.autodartsWindow = self.driver.current_window_handle
-        self.driver.get(self.boardManager_AutoDarts)
+        # Open Autodarts Board Manager (headless window)
+        ad_options = Options()
+        ad_options.add_argument("--headless=new")  # Chrome 109+ style headless
+        ad_options.add_argument("--disable-gpu")
+        ad_options.add_argument("--window-size=1920,1080")
+        self.ad_driver = webdriver.Chrome(options=ad_options)
+        self.ad_driver.get(self.boardManager_AutoDarts)
 
     def DC_logInDartConnect(self, username = '', password = ''):
         # NOTE: This is currently unused
-        self.driver.switch_to.window(self.dartConnectWindow)
-
-        if username == '' | password == '':
+        if username == '' or password == '':
             print('Please sign into DartConnect...')
             return
         
         try:
-            logInBox = self.driver.find_element(By.ID, 'pl-email-login')
+            logInBox = self.dc_driver.find_element(By.ID, 'pl-email-login')
             logInBox.send_keys(username)
 
-            passwordBox = self.driver.find_element(By.ID, 'pl-password')
+            passwordBox = self.dc_driver.find_element(By.ID, 'pl-password')
             passwordBox.send_keys(password)
 
-            buttonOK = self.driver.find_element(By.ID, 'pl-ok')
+            buttonOK = self.dc_driver.find_element(By.ID, 'pl-ok')
             buttonOK.click()
         except:
             print('Automatic Log-in was unsuccessful. Please log-in manually.')
@@ -70,8 +70,7 @@ class AutoScorer():
     def DC_checkEndGame(self):
         # Check if game is over
         # NOTE: A little bit of a hack, this is going to cause an error if a game ended (expected behavior)
-        self.driver.switch_to.window(self.dartConnectWindow)
-        controlButton = self.driver.find_element(By.ID, 'mb-ig-control')
+        controlButton = self.dc_driver.find_element(By.ID, 'mb-ig-control')
         return controlButton.text == '' # If this is true, it is my turn
     
     def calcScore_x01(self, currentTurn = ''):
@@ -95,102 +94,96 @@ class AutoScorer():
         return score
     
     def DC_enterScore_x01(self, score = ''):
-        self.driver.switch_to.window(self.dartConnectWindow)
         if score == 0:
             return # Short circuit return if miss/no-score
         
         for digit in str(score):
             if digit == '0':
                 time.sleep(0.1) # Annoying, but need to wait for the 0 to pop-up in the window first
-                self.driver.find_element(By.ID, 'kp-p-00').click()
+                self.dc_driver.find_element(By.ID, 'kp-p-00').click()
             elif digit == '1':
-                self.driver.find_element(By.ID, 'kp-p-01').click()
+                self.dc_driver.find_element(By.ID, 'kp-p-01').click()
             elif digit == '2':
-                self.driver.find_element(By.ID, 'kp-p-02').click()
+                self.dc_driver.find_element(By.ID, 'kp-p-02').click()
             elif digit == '3':
-                self.driver.find_element(By.ID, 'kp-p-03').click()
+                self.dc_driver.find_element(By.ID, 'kp-p-03').click()
             elif digit == '4':
-                self.driver.find_element(By.ID, 'kp-p-04').click()
+                self.dc_driver.find_element(By.ID, 'kp-p-04').click()
             elif digit == '5':
-                self.driver.find_element(By.ID, 'kp-p-05').click()
+                self.dc_driver.find_element(By.ID, 'kp-p-05').click()
             elif digit == '6':
-                self.driver.find_element(By.ID, 'kp-p-06').click()
+                self.dc_driver.find_element(By.ID, 'kp-p-06').click()
             elif digit == '7':
-                self.driver.find_element(By.ID, 'kp-p-07').click()
+                self.dc_driver.find_element(By.ID, 'kp-p-07').click()
             elif digit == '8':
-                self.driver.find_element(By.ID, 'kp-p-08').click()
+                self.dc_driver.find_element(By.ID, 'kp-p-08').click()
             elif digit == '9':
-                self.driver.find_element(By.ID, 'kp-p-09').click()
+                self.dc_driver.find_element(By.ID, 'kp-p-09').click()
 
-        self.driver.find_element(By.ID, 'kp-p-plus').click()
+        self.dc_driver.find_element(By.ID, 'kp-p-plus').click()
 
     def DC_enterScore_cricket(self, currentTurn = ''):
         # NOTE: This is written to support entering currentTurn as 1 Dart or multiple Darts at a time
-        self.driver.switch_to.window(self.dartConnectWindow)
 
         for turn in currentTurn:
             if turn == 'S20':
-                self.driver.find_element(By.ID, 'sb-c-b1S').click()
+                self.dc_driver.find_element(By.ID, 'sb-c-b1S').click()
             elif turn == 'D20':
-                self.driver.find_element(By.ID, 'sb-c-b1D').click()
+                self.dc_driver.find_element(By.ID, 'sb-c-b1D').click()
             elif turn == 'T20':
-                self.driver.find_element(By.ID, 'sb-c-b1T').click()
+                self.dc_driver.find_element(By.ID, 'sb-c-b1T').click()
             elif turn == 'S19':
-                self.driver.find_element(By.ID, 'sb-c-b2S').click()
+                self.dc_driver.find_element(By.ID, 'sb-c-b2S').click()
             elif turn == 'D19':
-                self.driver.find_element(By.ID, 'sb-c-b2D').click()
+                self.dc_driver.find_element(By.ID, 'sb-c-b2D').click()
             elif turn == 'T19':
-                self.driver.find_element(By.ID, 'sb-c-b2T').click()
+                self.dc_driver.find_element(By.ID, 'sb-c-b2T').click()
             elif turn == 'S18':
-                self.driver.find_element(By.ID, 'sb-c-b3S').click()
+                self.dc_driver.find_element(By.ID, 'sb-c-b3S').click()
             elif turn == 'D18':
-                self.driver.find_element(By.ID, 'sb-c-b3D').click()
+                self.dc_driver.find_element(By.ID, 'sb-c-b3D').click()
             elif turn == 'T18':
-                self.driver.find_element(By.ID, 'sb-c-b3T').click()
+                self.dc_driver.find_element(By.ID, 'sb-c-b3T').click()
             elif turn == 'S17':
-                self.driver.find_element(By.ID, 'sb-c-b4S').click()
+                self.dc_driver.find_element(By.ID, 'sb-c-b4S').click()
             elif turn == 'D17':
-                self.driver.find_element(By.ID, 'sb-c-b4D').click()
+                self.dc_driver.find_element(By.ID, 'sb-c-b4D').click()
             elif turn == 'T17':
-                self.driver.find_element(By.ID, 'sb-c-b4T').click()
+                self.dc_driver.find_element(By.ID, 'sb-c-b4T').click()
             elif turn == 'S16':
-                self.driver.find_element(By.ID, 'sb-c-b5S').click()
+                self.dc_driver.find_element(By.ID, 'sb-c-b5S').click()
             elif turn == 'D16':
-                self.driver.find_element(By.ID, 'sb-c-b5D').click()
+                self.dc_driver.find_element(By.ID, 'sb-c-b5D').click()
             elif turn == 'T16':
-                self.driver.find_element(By.ID, 'sb-c-b5T').click()
+                self.dc_driver.find_element(By.ID, 'sb-c-b5T').click()
             elif turn == 'S15':
-                self.driver.find_element(By.ID, 'sb-c-b6S').click()
+                self.dc_driver.find_element(By.ID, 'sb-c-b6S').click()
             elif turn == 'D15':
-                self.driver.find_element(By.ID, 'sb-c-b6D').click()
+                self.dc_driver.find_element(By.ID, 'sb-c-b6D').click()
             elif turn == 'T15':
-                self.driver.find_element(By.ID, 'sb-c-b6T').click()
+                self.dc_driver.find_element(By.ID, 'sb-c-b6T').click()
             elif turn == '25':
-                self.driver.find_element(By.ID, 'sb-c-b7S').click()
+                self.dc_driver.find_element(By.ID, 'sb-c-b7S').click()
             elif turn == 'Bull':
-                self.driver.find_element(By.ID, 'sb-c-b7D').click()
+                self.dc_driver.find_element(By.ID, 'sb-c-b7D').click()
     
     def AD_checkThrow(self):
         # Return value of each dart
-        self.driver.switch_to.window(self.autodartsWindow)
-        fullData = self.driver.find_element(By.CLASS_NAME, 'css-1kgqfvv').text.split('\n')
+        fullData = self.ad_driver.find_element(By.CLASS_NAME, 'css-1kgqfvv').text.split('\n')
         return fullData[5:None]
 
     def AD_checkTurnEnd(self):
         # Monitor 'Takeout in progress' to end turn
-        self.driver.switch_to.window(self.autodartsWindow)
-        fullData = self.driver.find_element(By.CLASS_NAME, 'css-1kgqfvv').text.split('\n')
+        fullData = self.ad_driver.find_element(By.CLASS_NAME, 'css-1kgqfvv').text.split('\n')
         return fullData[3] == 'Takeout in progress'
     
     def DC_endTurn(self):
         # Enter score for turn, if this fails, it's becuase the game is over
-        self.driver.switch_to.window(self.dartConnectWindow)
-        self.driver.find_element(By.ID, 'mb-ig-funcr').click()
+        self.dc_driver.find_element(By.ID, 'mb-ig-funcr').click()
 
     def AD_manualReset(self):
         # Reset the Autodarts monitor if it gets stuck in 'Takeout in progress'
-        self.driver.switch_to.window(self.autodartsWindow)
-        self.driver.find_elements(By.CLASS_NAME, 'chakra-button.css-k9nurg')[1].click()
+        self.ad_driver.find_elements(By.CLASS_NAME, 'chakra-button.css-k9nurg')[1].click()
 
     def checkNextDart(self, currentThrow = '', prevThrow = ''):
         # Only return the most recently thrown dart
@@ -202,7 +195,6 @@ class AutoScorer():
 
     def AD_isMyTurn(self):
         # Checks if the player has started throwing their darts
-        self.driver.switch_to.window(self.autodartsWindow)
         curThrow = self.AD_checkThrow()
         return curThrow != ['-', '-', '-']
 
@@ -231,7 +223,7 @@ class AutoScorer():
                                 self.DC_enterScore_x01(score)
                             case '301':
                                 if doubledIn == False:
-                                    doubledIn = (curDart[0] == 'D') | (curDart == 'Bull')
+                                    doubledIn = (curDart[0] == 'D') or (curDart == 'Bull')
 
                                 if doubledIn:
                                     score = self.calcScore_x01([curDart, '-', '-'])
@@ -264,7 +256,8 @@ if __name__ == '__main__':
             case 'Quit':
                 print('Thank you! Goodbye!')
                 time.sleep(2)
-                app.driver.quit()
+                app.dc_driver.quit()
+                app.ad_driver.quit()
                 quit()
             case _:
                 print('Invalid Input, Please Try Again!')
