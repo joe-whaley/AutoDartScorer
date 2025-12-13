@@ -3,10 +3,12 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 import time
 
-
+# TODO: Maybe add a file that holds and maps all the special button IDs to their meaning. Then reference the meaning, and if ID changes, just change in the refernce file.
 class DartConnectClient:
     def __init__(self) -> None:
         self.url_DartConnect = 'https://app.dartconnect.com/'
+        self.last_turn_state = None
+        self.last_dart = None  # tuple of (code, x, y) or None
 
         dc_options = Options()
         dc_options.add_argument("--start-maximized")
@@ -61,7 +63,7 @@ class DartConnectClient:
 
         for digit in str(score):
             if digit == '0':
-                time.sleep(0.1)
+                time.sleep(0.1) # TODO: Do we still need this delay if we already check for 0 score?
                 self.dc_driver.find_element(By.ID, 'kp-p-00').click()
             elif digit == '1':
                 self.dc_driver.find_element(By.ID, 'kp-p-01').click()
@@ -129,6 +131,40 @@ class DartConnectClient:
 
     def DC_endTurn(self):
         self.dc_driver.find_element(By.ID, 'mb-ig-funcr').click()
+
+    def handle_turn_state(self, turn_state: str, game_type: str):
+        """Store the latest turn_state coming from Autodarts and enter score when appropriate."""
+        if turn_state is None:
+            return
+
+        self.last_turn_state = turn_state
+        dart_code = None
+
+        if turn_state.startswith("dart:"):
+            # Format: dart:CODE x y (x/y may be 'None')
+            _, payload = turn_state.split(":", 1)
+            parts = payload.split()
+            if len(parts) == 3:
+                dart_code, x_str, y_str = parts
+                try:
+                    x_val = float(x_str) if x_str != "None" else None
+                    y_val = float(y_str) if y_str != "None" else None
+                except ValueError:
+                    x_val = None
+                    y_val = None
+                self.last_dart = (dart_code, x_val, y_val)
+        else:
+            self.last_dart = None
+
+        # Only enter a score if we have a valid dart code
+        # TODO: Maybe add ability to score all darts at once after turn completes
+        if dart_code:
+            match game_type:
+                case 'Cricket':
+                    self.DC_enterScore_cricket([dart_code, '-', '-'])
+                case _:
+                    score = self.calcScore_x01([dart_code, '-', '-'])
+                    self.DC_enterScore_x01(score)
 
     def quit(self):
         self.dc_driver.quit()

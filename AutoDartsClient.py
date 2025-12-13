@@ -23,6 +23,7 @@ class AutodartsAPIClient:
     def __init__(self, cfg: AutodartsConfig):
         self.cfg = cfg
         self.session = requests.Session()
+        self.last_turn_state: Optional[str] = None  # latest turn state emitted by callback
 
         # Base REST URL (optional, for later)
         self.base_url = self.cfg.base_url.rstrip("/")
@@ -63,7 +64,7 @@ class AutodartsAPIClient:
 
         if self.on_event is not None:
             try:
-                self.on_event(data)
+                self.last_turn_state = self.on_event(data)
             except Exception as e:
                 print("[WS] Error in on_event callback:", e)
 
@@ -138,27 +139,31 @@ def _segment_to_code(segment: dict) -> str:
 
 
 def _print_dart(event: dict):
-    """Callback to print dart segment and coordinates."""
+    """Callback to print dart segment/coords and return a turnState string."""
+
     if event.get("type") != "state":
-        return
+        return "status:none"
 
     data = event.get("data", {})
-    print(data.get("event", "Unknown event"))
-    if data.get("event") == "Takeout finished":
+    event_name = data.get("event", "Unknown event")
+    print(event_name)
+
+    if event_name == "Takeout finished":
         print("Turn Complete")
-        return
-    
-    if data.get("event") == "Takeout started":
+        return "status:turnComplete"
+
+    if event_name == "Takeout started":
         print("Turn Ending")
-        return
-    
-    if data.get("event") != "Throw detected":
+        return "status:turnEnding"
+
+    if event_name != "Throw detected":
         print("Turn Incomplete")
-        return
+        return "status:turnIncomplete"
 
     throws = data.get("throws", [])
     if not throws:
-        return
+        print("No throws found")
+        return "status:noThrows"
 
     new_throw = throws[-1]
     segment = new_throw.get("segment", {})
@@ -169,9 +174,13 @@ def _print_dart(event: dict):
     y = coords.get("y")
 
     if x is not None and y is not None:
-        print(f"{code} {x:.3f} {y:.3f}")
-    else:
-        print(f"{code} None None")
+        turnState = f"dart:{code} {x:.3f} {y:.3f}"
+        print(turnState)
+        return turnState
+
+    turnState = f"dart:{code} None None"
+    print(turnState)
+    return turnState
 
 
 if __name__ == "__main__":

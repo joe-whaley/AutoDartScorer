@@ -17,7 +17,7 @@ import os
 import time
 
 from DartConnectClient import DartConnectClient
-from AutoDartsClient import AutodartsAPIClient, AutodartsConfig
+from AutoDartsClient import AutodartsAPIClient, AutodartsConfig, _print_dart
 
 # NOTE: Requires selenium and a Google Chrome Driver
 #       See: https://selenium-python.readthedocs.io/
@@ -46,83 +46,63 @@ class AutoScorer():
         # Track latest autodarts state
         self.current_throws = ['-', '-', '-']
         self.takeout_in_progress = False
+        self.last_turn_state = "status:none"
+        self.current_game_type = None
+        self.doubled_in = False
+        self.game_active = False
     
     def handle_autodarts_event(self, event: dict):
-        # Update throws / takeout flags from Autodarts WebSocket events
-        if event.get('type') != 'state':
+        # Let AutoDartsClient translate the raw event into a turnState string
+        turn_state = _print_dart(event)
+        self.last_turn_state = turn_state
+
+        # If no active game, ignore the event
+        if not self.game_active:
             return
 
-        data = event.get('data', {})
-        event_name = data.get('event', '')
-
-        if 'throws' in data:
-            self.current_throws = data.get('throws', self.current_throws)
-
-        if event_name == 'Takeout in progress':
-            self.takeout_in_progress = True
-        elif event_name == 'Throw detected':
+        # Handle dart events immediately (no polling needed)
+        if turn_state and turn_state.startswith("dart:") and self.current_game_type:
+            dart_code = turn_state.split(":", 1)[1].split()[0]
+            self.current_throws = [dart_code, '-', '-']
             self.takeout_in_progress = False
 
-    def AD_checkThrow(self):
-        # Return value of each dart from latest Autodarts event
-        return self.current_throws
+            # Decide if this dart should be scored, accounting for 301 double-in
+            should_score = True
+            if self.current_game_type == '301':
+                if not self.doubled_in:
+                    self.doubled_in = (dart_code.startswith('D')) or (dart_code == 'Bull')
+                should_score = self.doubled_in
 
-    def AD_checkTurnEnd(self):
-        # Detect turn end based on takeout flag
-        return self.takeout_in_progress
+            if should_score:
+                self.dc_client.handle_turn_state(turn_state, self.current_game_type)
 
-    def checkNextDart(self, currentThrow = '', prevThrow = ''):
-        # Only return the most recently thrown dart
-        i = 0
-        for turn in currentThrow:
-            if turn != prevThrow[i]:
-                return turn
-            i = i + 1
+        # Handle turn end statuses
+        if turn_state in ("status:turnComplete", "status:turnEnding"): # TODO: Might just want a button to score turn/end game
+            try:
+                self.dc_client.DC_endTurn() # TODO: Might want to add score fix/override, or button to end turn
+                self.dc_client.DC_checkEndGame()
+            except Exception:
+                # If DartConnect interaction fails, assume game ended
+                self.game_active = False
+            self.takeout_in_progress = True
+        elif turn_state == "status:turnIncomplete":
+            self.takeout_in_progress = False
 
-    def AD_isMyTurn(self):
-        # Checks if the player has started throwing their darts
-        curThrow = self.AD_checkThrow()
-        return curThrow != ['-', '-', '-']
-
-    def DC_playGame(self, gameType = ''):
+    def playGame(self, gameType = ''):
         print('Now Playing ' + gameType + '...')
         print('GAME ON!')
-        isMyTurn = False
-        doubledIn = False
-        while True:
-            try:
-                time.sleep(1) # Check once a second to avoid spamming webpages
-                prevThrow = ['-', '-', '-']
-                isMyTurn = self.AD_isMyTurn()
-                while isMyTurn:
-                    time.sleep(1) # Check once a second to avoid spamming webpages
-                    curThrow = self.AD_checkThrow()
-                    curDart = self.checkNextDart(curThrow, prevThrow)
+        self.current_game_type = gameType
+        self.doubled_in = False
+        self.game_active = True
 
-                    if prevThrow != curThrow:
-                        match gameType:
-                            case '501':
-                                score = self.dc_client.calcScore_x01([curDart, '-', '-'])
-                                self.dc_client.DC_enterScore_x01(score)
-                            case '301':
-                                if doubledIn == False:
-                                    doubledIn = (curDart[0] == 'D') or (curDart == 'Bull')
-
-                                if doubledIn:
-                                    score = self.dc_client.calcScore_x01([curDart, '-', '-'])
-                                    self.dc_client.DC_enterScore_x01(score)
-                            case 'Cricket':
-                                self.dc_client.DC_enterScore_cricket([curDart, '-', '-'])
-
-                    if self.AD_checkTurnEnd():
-                        self.dc_client.DC_endTurn()
-                        self.dc_client.DC_checkEndGame()
-                        isMyTurn = False
-
-                    prevThrow = curThrow
-            except:
-                # Wrap the whole thing in try statement to detect failure, likely because the game ended
-                return
+        try:
+            while self.game_active:
+                # WebSocket callbacks will handle scoring; just idle
+                time.sleep(0.2)
+        except KeyboardInterrupt:
+            self.game_active = False
+        finally:
+            self.current_game_type = None
 
 
 
@@ -134,8 +114,11 @@ if __name__ == '__main__':
         gameType = input('Enter 501, 301, Cricket, or Quit: ')
         match gameType:
             case '501' | '301' | 'Cricket':
-                app.DC_playGame(gameType)
+                app.playGame(gameType)
                 print('GAME OVER')
+            case 'Training':
+                # TODO: Implement Training Mode that saves throws to a file for later review
+                print('Training Mode is not yet implemented. Please select another option.')
             case 'Quit':
                 print('Thank you! Goodbye!')
                 time.sleep(2)
