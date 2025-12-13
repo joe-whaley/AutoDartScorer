@@ -1,7 +1,9 @@
+import os
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 import time
+import os
 
 # TODO: Maybe add a file that holds and maps all the special button IDs to their meaning. Then reference the meaning, and if ID changes, just change in the refernce file.
 class DartConnectClient:
@@ -15,11 +17,17 @@ class DartConnectClient:
         self.dc_driver = webdriver.Chrome(options=dc_options)
         self.dc_driver.get(self.url_DartConnect)
 
+        # Attempt automatic login from environment variables
+        username = os.getenv("DARTCONNECT_USERNAME", "REPLACE_ME")
+        password = os.getenv("DARTCONNECT_PASSWORD", "")
+        # TODO: Improve method to wait for page load before attempting login
+        time.sleep(2)  # Wait for page to load
+        self.DC_logInDartConnect(username=username, password=password)
+
     def DC_logInDartConnect(self, username: str = '', password: str = ''):
-        # NOTE: This is currently unused
-        if username == '' or password == '':
-            print('Please sign into DartConnect...')
-            return
+        # if username == '' or password == '':
+        #     print('Please sign into DartConnect...')
+        #     return
 
         try:
             logInBox = self.dc_driver.find_element(By.ID, 'pl-email-login')

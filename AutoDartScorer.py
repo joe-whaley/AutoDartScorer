@@ -51,6 +51,17 @@ class AutoScorer():
         self.doubled_in = False
         self.game_active = False
     
+    def shutdown(self):
+        """Cleanly stop event stream and close DartConnect browser."""
+        try:
+            self.autodarts_client.stop_event_stream()
+        except Exception:
+            pass
+        try:
+            self.dc_client.quit()
+        except Exception:
+            pass
+    
     def handle_autodarts_event(self, event: dict):
         # Let AutoDartsClient translate the raw event into a turnState string
         turn_state = _print_dart(event)
@@ -77,13 +88,16 @@ class AutoScorer():
                 self.dc_client.handle_turn_state(turn_state, self.current_game_type)
 
         # Handle turn end statuses
-        if turn_state in ("status:turnComplete", "status:turnEnding"): # TODO: Might just want a button to score turn/end game
+        if turn_state == "status:turnComplete": # TODO: Might just want a button to score turn/end game
             try:
                 self.dc_client.DC_endTurn() # TODO: Might want to add score fix/override, or button to end turn
-                self.dc_client.DC_checkEndGame()
+                self.dc_client.DC_checkEndGame() # TODO: checkEndGame isn't working, maybe just have button to end game
             except Exception:
                 # If DartConnect interaction fails, assume game ended
                 self.game_active = False
+            self.takeout_in_progress = False
+        elif turn_state == "status:turnEnding":
+            # TODO: Set a timeout here to manually reset AutoDarts if it gets stuck here
             self.takeout_in_progress = True
         elif turn_state == "status:turnIncomplete":
             self.takeout_in_progress = False
@@ -94,6 +108,7 @@ class AutoScorer():
         self.current_game_type = gameType
         self.doubled_in = False
         self.game_active = True
+        # TODO: Might want to first check that WebSocket is connected, if not, restart AutoDartsClient and Start/Restart AutoDarts
 
         try:
             while self.game_active:
@@ -122,8 +137,7 @@ if __name__ == '__main__':
             case 'Quit':
                 print('Thank you! Goodbye!')
                 time.sleep(2)
-                app.dc_client.quit()
-                app.autodarts_client.stop_event_stream()
+                app.shutdown()
                 quit()
             case _:
                 print('Invalid Input, Please Try Again!')
