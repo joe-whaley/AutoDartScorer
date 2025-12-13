@@ -143,7 +143,17 @@ def _print_dart(event: dict):
         return
 
     data = event.get("data", {})
+    print(data.get("event", "Unknown event"))
+    if data.get("event") == "Takeout finished":
+        print("Turn Complete")
+        return
+    
+    if data.get("event") == "Takeout started":
+        print("Turn Ending")
+        return
+    
     if data.get("event") != "Throw detected":
+        print("Turn Incomplete")
         return
 
     throws = data.get("throws", [])
