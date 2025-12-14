@@ -3,7 +3,6 @@ import os
 import time
 from typing import Optional
 
-# TODO: Save csv to subfolder of "training_logs"
 # TODO: Live feedback of accuracy over training session
 # TODO: Live graph of accumulated hits on the board surrounding target
 # TODO: Live 2-D board heatmap and gaussian distribution of all throws during session
@@ -11,7 +10,10 @@ class TrainingClient:
     """Lightweight logger for training throws."""
 
     def __init__(self, log_path: str):
-        self.log_path = log_path
+        base_dir = os.path.dirname(os.path.abspath(log_path))
+        training_dir = os.path.join(base_dir, "training_logs")
+        os.makedirs(training_dir, exist_ok=True)
+        self.log_path = os.path.join(training_dir, os.path.basename(log_path))
         self._ensure_file()
 
     def _ensure_file(self):

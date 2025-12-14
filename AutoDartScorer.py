@@ -19,9 +19,13 @@ import time
 import tkinter as tk
 from tkinter import messagebox, simpledialog
 
-from DartConnectClient import DartConnectClient
-from AutoDartsClient import AutodartsAPIClient, AutodartsConfig, _print_dart
-from TrainingClient import TrainingClient
+from Clients import (
+    AutodartsAPIClient,
+    AutodartsConfig,
+    DartConnectClient,
+    TrainingClient,
+    _print_dart,
+)
 
 # NOTE: Requires selenium and a Google Chrome Driver
 #       See: https://selenium-python.readthedocs.io/
@@ -193,6 +197,7 @@ class AutoScorer():
                 self.turn_timeout_start = None
                 self._update_status("Turn timeout reached; ending turn manually.")
                 try:
+                    self.autodarts_client.restart_autodarts(on_event=self.handle_autodarts_event)
                     self.dc_client.endTurn()
                 except Exception:
                     pass

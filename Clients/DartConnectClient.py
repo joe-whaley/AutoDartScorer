@@ -1,11 +1,24 @@
 import os
+import time
+
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-import time
-import os
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
-# TODO: Maybe add a file that holds and maps all the special button IDs to their meaning. Then reference the meaning, and if ID changes, just change in the refernce file.
+from .DartConnect_button_ids import (
+    CONFIRM_WIN,
+    CRICKET_CODES,
+    ENTER_SCORE,
+    LOGIN_EMAIL,
+    LOGIN_PASSWORD,
+    LOGIN_SUBMIT,
+    WINNING_DART_NUMBER,
+    X01_DIGITS,
+    X01_PLUS,
+)
+
 class DartConnectClient:
     def __init__(self) -> None:
         self.url_DartConnect = 'https://app.dartconnect.com/'
@@ -20,8 +33,9 @@ class DartConnectClient:
         # Attempt automatic login from environment variables
         username = os.getenv("DARTCONNECT_USERNAME", "REPLACE_ME")
         password = os.getenv("DARTCONNECT_PASSWORD", "")
-        # TODO: Improve method to wait for page load before attempting login
-        time.sleep(2)  # Wait for page to load
+        WebDriverWait(self.dc_driver, 5).until(
+            EC.visibility_of_element_located((By.ID, LOGIN_EMAIL))
+        )
         self.logInDartConnect(username=username, password=password)
 
     def logInDartConnect(self, username: str = '', password: str = ''):
@@ -30,13 +44,13 @@ class DartConnectClient:
         #     return
 
         try:
-            logInBox = self.dc_driver.find_element(By.ID, 'pl-email-login')
+            logInBox = self.dc_driver.find_element(By.ID, LOGIN_EMAIL)
             logInBox.send_keys(username)
 
-            passwordBox = self.dc_driver.find_element(By.ID, 'pl-password')
+            passwordBox = self.dc_driver.find_element(By.ID, LOGIN_PASSWORD)
             passwordBox.send_keys(password)
 
-            buttonOK = self.dc_driver.find_element(By.ID, 'pl-ok')
+            buttonOK = self.dc_driver.find_element(By.ID, LOGIN_SUBMIT)
             buttonOK.click()
         except Exception:
             print('Automatic Log-in was unsuccessful. Please log-in manually.')
@@ -45,18 +59,17 @@ class DartConnectClient:
     def checkEndGame(self, num_throws: int = 0):
         """Handle end-of-game prompt and return True if game is over."""
         try:
-            confirm_button = self.dc_driver.find_element(By.ID, 'confirm-ok')
+            confirm_button = self.dc_driver.find_element(By.ID, CONFIRM_WIN)
             if confirm_button:
                 try:
                     confirm_button.click()
                 except Exception:
-                    pass
+                    return False
                 if 1 <= num_throws <= 3:
                     try:
-                        self.dc_driver.find_element(By.ID, f'swdm-dart-{num_throws}').click()
+                        self.dc_driver.find_element(By.ID, WINNING_DART_NUMBER.format(index=num_throws)).click()
                     except Exception:
-                        pass
-                return True
+                        return False
         except Exception:
             pass
 
@@ -92,74 +105,21 @@ class DartConnectClient:
 
         for digit in str(score):
             if digit == '0':
-                time.sleep(0.1) # TODO: Do we still need this delay if we already check for 0 score?
-                self.dc_driver.find_element(By.ID, 'kp-p-00').click()
-            elif digit == '1':
-                self.dc_driver.find_element(By.ID, 'kp-p-01').click()
-            elif digit == '2':
-                self.dc_driver.find_element(By.ID, 'kp-p-02').click()
-            elif digit == '3':
-                self.dc_driver.find_element(By.ID, 'kp-p-03').click()
-            elif digit == '4':
-                self.dc_driver.find_element(By.ID, 'kp-p-04').click()
-            elif digit == '5':
-                self.dc_driver.find_element(By.ID, 'kp-p-05').click()
-            elif digit == '6':
-                self.dc_driver.find_element(By.ID, 'kp-p-06').click()
-            elif digit == '7':
-                self.dc_driver.find_element(By.ID, 'kp-p-07').click()
-            elif digit == '8':
-                self.dc_driver.find_element(By.ID, 'kp-p-08').click()
-            elif digit == '9':
-                self.dc_driver.find_element(By.ID, 'kp-p-09').click()
+                time.sleep(0.2) # TODO: Do we still need this delay if we already check for 0 score?
+            button_id = X01_DIGITS.get(digit)
+            if button_id:
+                self.dc_driver.find_element(By.ID, button_id).click()
 
-        self.dc_driver.find_element(By.ID, 'kp-p-plus').click()
+        self.dc_driver.find_element(By.ID, X01_PLUS).click()
 
     def enterScore_cricket(self, currentTurn=''):
         for turn in currentTurn:
-            if turn == 'S20':
-                self.dc_driver.find_element(By.ID, 'sb-c-b1S').click()
-            elif turn == 'D20':
-                self.dc_driver.find_element(By.ID, 'sb-c-b1D').click()
-            elif turn == 'T20':
-                self.dc_driver.find_element(By.ID, 'sb-c-b1T').click()
-            elif turn == 'S19':
-                self.dc_driver.find_element(By.ID, 'sb-c-b2S').click()
-            elif turn == 'D19':
-                self.dc_driver.find_element(By.ID, 'sb-c-b2D').click()
-            elif turn == 'T19':
-                self.dc_driver.find_element(By.ID, 'sb-c-b2T').click()
-            elif turn == 'S18':
-                self.dc_driver.find_element(By.ID, 'sb-c-b3S').click()
-            elif turn == 'D18':
-                self.dc_driver.find_element(By.ID, 'sb-c-b3D').click()
-            elif turn == 'T18':
-                self.dc_driver.find_element(By.ID, 'sb-c-b3T').click()
-            elif turn == 'S17':
-                self.dc_driver.find_element(By.ID, 'sb-c-b4S').click()
-            elif turn == 'D17':
-                self.dc_driver.find_element(By.ID, 'sb-c-b4D').click()
-            elif turn == 'T17':
-                self.dc_driver.find_element(By.ID, 'sb-c-b4T').click()
-            elif turn == 'S16':
-                self.dc_driver.find_element(By.ID, 'sb-c-b5S').click()
-            elif turn == 'D16':
-                self.dc_driver.find_element(By.ID, 'sb-c-b5D').click()
-            elif turn == 'T16':
-                self.dc_driver.find_element(By.ID, 'sb-c-b5T').click()
-            elif turn == 'S15':
-                self.dc_driver.find_element(By.ID, 'sb-c-b6S').click()
-            elif turn == 'D15':
-                self.dc_driver.find_element(By.ID, 'sb-c-b6D').click()
-            elif turn == 'T15':
-                self.dc_driver.find_element(By.ID, 'sb-c-b6T').click()
-            elif turn == '25':
-                self.dc_driver.find_element(By.ID, 'sb-c-b7S').click()
-            elif turn == 'Bull':
-                self.dc_driver.find_element(By.ID, 'sb-c-b7D').click()
+            button_id = CRICKET_CODES.get(turn)
+            if button_id:
+                self.dc_driver.find_element(By.ID, button_id).click()
 
     def endTurn(self):
-        self.dc_driver.find_element(By.ID, 'mb-ig-funcr').click()
+        self.dc_driver.find_element(By.ID, ENTER_SCORE).click()
 
     def handle_turn_state(self, turn_state: str, game_type: str):
         """Store the latest turn_state coming from Autodarts and enter score when appropriate."""
