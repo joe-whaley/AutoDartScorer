@@ -14,10 +14,14 @@
 
 # Import Libraries
 import os
+import threading
 import time
+import tkinter as tk
+from tkinter import messagebox, simpledialog
 
 from DartConnectClient import DartConnectClient
 from AutoDartsClient import AutodartsAPIClient, AutodartsConfig, _print_dart
+from TrainingClient import TrainingClient
 
 # NOTE: Requires selenium and a Google Chrome Driver
 #       See: https://selenium-python.readthedocs.io/
@@ -34,12 +38,12 @@ class AutoScorer():
         self.dc_client = DartConnectClient()
 
         # Autodarts via WebSocket client
-        cfg = AutodartsConfig(
+        self.autodarts_cfg = AutodartsConfig(
             base_url=self.boardManager_AutoDarts,
             api_key=self.autodarts_api_key,
             board_id=self.autodarts_board_id,
         )
-        self.autodarts_client = AutodartsAPIClient(cfg)
+        self.autodarts_client = AutodartsAPIClient(self.autodarts_cfg)
         self.autodarts_client.on_event = self.handle_autodarts_event
         self.autodarts_client.start_event_stream()
 
@@ -50,6 +54,19 @@ class AutoScorer():
         self.current_game_type = None
         self.doubled_in = False
         self.game_active = False
+        self.turn_timeout_start = None
+        self.turn_timeout_seconds = 3
+        self.training_log_path = "training_throws.csv"
+        self.training_client = None
+        self.current_dart_count = 0
+
+        # GUI setup
+        self.root = tk.Tk()
+        self.root.title("Auto Dart Scorer")
+        self.status_text = tk.StringVar(value="Idle - select a game and press Start")
+        self.game_var = tk.StringVar(value="501")
+        self._build_gui()
+        self._schedule_watchdog()
     
     def shutdown(self):
         """Cleanly stop event stream and close DartConnect browser."""
@@ -76,6 +93,7 @@ class AutoScorer():
             dart_code = turn_state.split(":", 1)[1].split()[0]
             self.current_throws = [dart_code, '-', '-']
             self.takeout_in_progress = False
+            self.current_dart_count = min(self.current_dart_count + 1, 3)
 
             # Decide if this dart should be scored, accounting for 301 double-in
             should_score = True
@@ -84,23 +102,37 @@ class AutoScorer():
                     self.doubled_in = (dart_code.startswith('D')) or (dart_code == 'Bull')
                 should_score = self.doubled_in
 
-            if should_score:
+            if self.current_game_type == 'Training':
+                if self.training_client is None:
+                    self.training_client = TrainingClient(self.training_log_path)
+                error = self.training_client.log_throw(turn_state)
+                if error:
+                    self._update_status(f"Failed to log training throw: {error}")
+                else:
+                    self._update_status(f"Logged training throw: {turn_state}")
+            elif should_score:
                 self.dc_client.handle_turn_state(turn_state, self.current_game_type)
 
         # Handle turn end statuses
-        if turn_state == "status:turnComplete": # TODO: Might just want a button to score turn/end game
+        if turn_state == "status:turnComplete":
             try:
-                self.dc_client.DC_endTurn() # TODO: Might want to add score fix/override, or button to end turn
-                self.dc_client.DC_checkEndGame() # TODO: checkEndGame isn't working, maybe just have button to end game
+                if self.current_game_type != 'Training':
+                    self.dc_client.endTurn()
+                    if self.dc_client.checkEndGame(self.current_dart_count):
+                        self.game_active = False
+                        self._update_status("Game finished in DartConnect.")
             except Exception:
                 # If DartConnect interaction fails, assume game ended
                 self.game_active = False
+                self._update_status("Error ending turn; stopped game.")
             self.takeout_in_progress = False
+            self.current_dart_count = 0
         elif turn_state == "status:turnEnding":
-            # TODO: Set a timeout here to manually reset AutoDarts if it gets stuck here
             self.takeout_in_progress = True
+            self.turn_timeout_start = time.time()
         elif turn_state == "status:turnIncomplete":
             self.takeout_in_progress = False
+            self.turn_timeout_start = None
 
     def playGame(self, gameType = ''):
         print('Now Playing ' + gameType + '...')
@@ -108,7 +140,7 @@ class AutoScorer():
         self.current_game_type = gameType
         self.doubled_in = False
         self.game_active = True
-        # TODO: Might want to first check that WebSocket is connected, if not, restart AutoDartsClient and Start/Restart AutoDarts
+        self.autodarts_client.ensure_websocket()
 
         try:
             while self.game_active:
@@ -119,25 +151,134 @@ class AutoScorer():
         finally:
             self.current_game_type = None
 
+    # ---------------- GUI helpers ----------------
+
+    def _build_gui(self):
+        controls = tk.Frame(self.root, padx=10, pady=10)
+        controls.pack(fill="both", expand=True)
+
+        tk.Label(controls, text="Game Type:").grid(row=0, column=0, sticky="w")
+        game_options = ["501", "301", "Cricket", "Training"]
+        tk.OptionMenu(controls, self.game_var, *game_options).grid(row=0, column=1, sticky="we")
+
+        tk.Button(controls, text="Start/Restart Game", command=self.start_selected_game).grid(row=0, column=2, padx=5, pady=2)
+        tk.Button(controls, text="End Turn", command=self.manual_end_turn).grid(row=1, column=0, padx=5, pady=2, sticky="we")
+        tk.Button(controls, text="End Game", command=self.stop_game).grid(row=1, column=1, padx=5, pady=2, sticky="we")
+        tk.Button(controls, text="Start/Restart AutoDarts", command=self._ui_restart_autodarts).grid(row=1, column=2, padx=5, pady=2, sticky="we")
+
+        status_frame = tk.Frame(self.root, padx=10, pady=10)
+        status_frame.pack(fill="x")
+        tk.Label(status_frame, text="Status:").pack(anchor="w")
+        tk.Label(status_frame, textvariable=self.status_text, anchor="w", justify="left", wraplength=500).pack(fill="x")
+
+    def _update_status(self, text: str):
+        def _set():
+            self.status_text.set(text)
+        # Tkinter should only update from main thread
+        if threading.current_thread() is threading.main_thread():
+            _set()
+        else:
+            self.root.after(0, _set)
+
+    def _schedule_watchdog(self):
+        """Periodic watchdog to recover if takeout gets stuck and to keep GUI responsive."""
+        self._check_turn_timeout()
+        self.root.after(500, self._schedule_watchdog)
+
+    def _check_turn_timeout(self):
+        if self.takeout_in_progress and self.turn_timeout_start:
+            elapsed = time.time() - self.turn_timeout_start
+            if elapsed > self.turn_timeout_seconds:
+                self.takeout_in_progress = False
+                self.turn_timeout_start = None
+                self._update_status("Turn timeout reached; ending turn manually.")
+                try:
+                    self.dc_client.endTurn()
+                except Exception:
+                    pass
+
+    def start_selected_game(self):
+        gameType = self.game_var.get()
+        if gameType not in ['501', '301', 'Cricket', 'Training']:
+            messagebox.showerror("Invalid Game", "Please select a valid game.")
+            return
+        self.start_game(gameType)
+
+    def start_game(self, gameType: str):
+        self.current_game_type = gameType
+        self.doubled_in = False
+        self.game_active = True
+        self.takeout_in_progress = False
+        self.turn_timeout_start = None
+        self.autodarts_client.ensure_websocket()
+        self._update_status(f"Game started: {gameType}")
+        print(f"Now Playing {gameType}...\nGAME ON!")
+        if gameType == 'Training':
+            new_path = simpledialog.askstring(
+                "Training Log",
+                "Enter training log filename (e.g., training_throws.csv):",
+                initialvalue=self.training_log_path,
+                parent=self.root,
+            )
+            if new_path:
+                user_path = new_path.strip()
+                base, ext = os.path.splitext(user_path)
+                suffix = time.strftime("%Y%m%d%H%M%S")
+                if not ext:
+                    ext = ".csv"
+                self.training_log_path = f"{base}_{suffix}{ext}"
+            self.training_client = TrainingClient(self.training_log_path)
+            self._update_status(f"Game started: {gameType} | logging to {self.training_log_path}")
+        self.current_dart_count = 0
+
+    def stop_game(self):
+        self.game_active = False
+        self.current_game_type = None
+        self._update_status("Game stopped.")
+        self.current_dart_count = 0
+
+    def manual_end_turn(self):
+        if self.current_game_type == 'Training':
+            self.takeout_in_progress = False
+            self.turn_timeout_start = None
+            self._update_status("Training turn marked complete.")
+            self.current_dart_count = 0
+            try:
+                self.autodarts_client.restart_autodarts(on_event=self.handle_autodarts_event)
+            except Exception:
+                pass
+            return
+
+        try:
+            self.dc_client.endTurn()
+            if self.dc_client.checkEndGame(self.current_dart_count):
+                self.game_active = False
+                self._update_status("Game finished in DartConnect.")
+            else:
+                self._update_status("Turn ended manually.")
+            self.current_dart_count = 0
+        except Exception:
+            self._update_status("Could not end turn; please check DartConnect.")
+        finally:
+            try:
+                self.autodarts_client.restart_autodarts(on_event=self.handle_autodarts_event)
+            except Exception:
+                pass
+
+    def _ui_restart_autodarts(self):
+        self.autodarts_client.restart_autodarts(on_event=self.handle_autodarts_event)
+        self._update_status("AutoDarts restarted and listening.")
+
+    def run(self):
+        try:
+            self.root.mainloop()
+        finally:
+            self.shutdown()
+
 
 
 if __name__ == '__main__':
     app = AutoScorer()
     print('Welcome to AutoScorer!')
     print('Your DartConnect/AutoDarts Link!')
-    while True:
-        gameType = input('Enter 501, 301, Cricket, or Quit: ')
-        match gameType:
-            case '501' | '301' | 'Cricket':
-                app.playGame(gameType)
-                print('GAME OVER')
-            case 'Training':
-                # TODO: Implement Training Mode that saves throws to a file for later review
-                print('Training Mode is not yet implemented. Please select another option.')
-            case 'Quit':
-                print('Thank you! Goodbye!')
-                time.sleep(2)
-                app.shutdown()
-                quit()
-            case _:
-                print('Invalid Input, Please Try Again!')
+    app.run()

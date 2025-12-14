@@ -22,9 +22,9 @@ class DartConnectClient:
         password = os.getenv("DARTCONNECT_PASSWORD", "")
         # TODO: Improve method to wait for page load before attempting login
         time.sleep(2)  # Wait for page to load
-        self.DC_logInDartConnect(username=username, password=password)
+        self.logInDartConnect(username=username, password=password)
 
-    def DC_logInDartConnect(self, username: str = '', password: str = ''):
+    def logInDartConnect(self, username: str = '', password: str = ''):
         # if username == '' or password == '':
         #     print('Please sign into DartConnect...')
         #     return
@@ -42,9 +42,30 @@ class DartConnectClient:
             print('Automatic Log-in was unsuccessful. Please log-in manually.')
             return
 
-    def DC_checkEndGame(self):
-        controlButton = self.dc_driver.find_element(By.ID, 'mb-ig-control')
-        return controlButton.text == ''
+    def checkEndGame(self, num_throws: int = 0):
+        """Handle end-of-game prompt and return True if game is over."""
+        try:
+            confirm_button = self.dc_driver.find_element(By.ID, 'confirm-ok')
+            if confirm_button:
+                try:
+                    confirm_button.click()
+                except Exception:
+                    pass
+                if 1 <= num_throws <= 3:
+                    try:
+                        self.dc_driver.find_element(By.ID, f'swdm-dart-{num_throws}').click()
+                    except Exception:
+                        pass
+                return True
+        except Exception:
+            pass
+
+        # try:
+        #     controlButton = self.dc_driver.find_element(By.ID, 'mb-ig-control')
+        #     return controlButton.text == ''
+        # except Exception:
+        #     return False
+        return False
 
     def calcScore_x01(self, currentTurn=''):
         score = 0
@@ -65,7 +86,7 @@ class DartConnectClient:
 
         return score
 
-    def DC_enterScore_x01(self, score=''):
+    def enterScore_x01(self, score=''):
         if score == 0:
             return
 
@@ -94,7 +115,7 @@ class DartConnectClient:
 
         self.dc_driver.find_element(By.ID, 'kp-p-plus').click()
 
-    def DC_enterScore_cricket(self, currentTurn=''):
+    def enterScore_cricket(self, currentTurn=''):
         for turn in currentTurn:
             if turn == 'S20':
                 self.dc_driver.find_element(By.ID, 'sb-c-b1S').click()
@@ -137,7 +158,7 @@ class DartConnectClient:
             elif turn == 'Bull':
                 self.dc_driver.find_element(By.ID, 'sb-c-b7D').click()
 
-    def DC_endTurn(self):
+    def endTurn(self):
         self.dc_driver.find_element(By.ID, 'mb-ig-funcr').click()
 
     def handle_turn_state(self, turn_state: str, game_type: str):
@@ -169,10 +190,10 @@ class DartConnectClient:
         if dart_code:
             match game_type:
                 case 'Cricket':
-                    self.DC_enterScore_cricket([dart_code, '-', '-'])
+                    self.enterScore_cricket([dart_code, '-', '-'])
                 case _:
                     score = self.calcScore_x01([dart_code, '-', '-'])
-                    self.DC_enterScore_x01(score)
+                    self.enterScore_x01(score)
 
     def quit(self):
         self.dc_driver.quit()

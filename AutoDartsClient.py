@@ -52,6 +52,16 @@ class AutodartsAPIClient:
         resp.raise_for_status()
         return resp.json()
 
+    def start(self) -> bool:
+        """Start Autodarts (begin running/throw detection)."""
+        try:
+            url = self._url("api/start")
+            resp = self.session.put(url, timeout=max(self.cfg.timeout, 5.0))
+            return resp.ok
+        except Exception as e:
+            print("[AD] Start failed:", e)
+            return False
+
     # ---------- WebSocket logic ----------
 
     def _on_message(self, ws: websocket.WebSocketApp, message: str):
@@ -109,6 +119,45 @@ class AutodartsAPIClient:
                 pass
         if self.ws_thread is not None:
             self.ws_thread.join(timeout=2.0)
+
+    def reset(self) -> bool:
+        """Reset Autodarts board state (clears current throws)."""
+        try:
+            url = self._url("api/reset")
+            resp = self.session.post(url, timeout=max(self.cfg.timeout, 5.0))
+            return resp.ok
+        except Exception as e:
+            print("[AD] Reset failed:", e)
+            return False
+
+    def restart_autodarts(self, on_event: Optional[Callable[[dict], None]] = None):
+        """Recreate session and websocket app, useful if the board manager restarted."""
+        try:
+            self.stop_event_stream()
+        except Exception:
+            pass
+        # Rebuild lightweight state
+        self.session = requests.Session()
+        if on_event is not None:
+            self.on_event = on_event
+        self.ws_app = None
+        self.ws_thread = None
+        self._running = False
+        # Clear current board state before reconnecting
+        self.reset()
+        # If board is stopped after reset, attempt to start it
+        try:
+            state = self.get_state()
+            if state.get("status") == "Stopped":
+                self.start()
+        except Exception:
+            pass
+        self.start_event_stream()
+
+    def ensure_websocket(self):
+        """Restart websocket stream if it is not currently running."""
+        if not getattr(self, "_running", False):
+            self.restart_autodarts()
 
 
 # ------------------------------
