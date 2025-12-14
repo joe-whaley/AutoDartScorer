@@ -38,8 +38,8 @@ class AutoScorer():
         self.autodarts_api_key = os.getenv('AUTODARTS_API_KEY', 'REPLACE_ME')
         self.autodarts_board_id = os.getenv('AUTODARTS_BOARD_ID', 'REPLACE_ME')
 
-        # Open Dart Connect (visible window)
-        self.dc_client = DartConnectClient()
+        # DartConnect client (lazily opened)
+        self.dc_client = None
 
         # Autodarts via WebSocket client
         self.autodarts_cfg = AutodartsConfig(
@@ -79,7 +79,8 @@ class AutoScorer():
         except Exception:
             pass
         try:
-            self.dc_client.quit()
+            if self.dc_client is not None:
+                self.dc_client.quit()
         except Exception:
             pass
     
@@ -114,12 +115,15 @@ class AutoScorer():
                     else:
                         self._update_status(f"Logged training throw: {turn_state}")
             elif should_score:
-                self.dc_client.handle_turn_state(turn_state, self.current_game_type)
+                if self._ensure_dc_client():
+                    self.dc_client.handle_turn_state(turn_state, self.current_game_type)
+                else:
+                    self._update_status("DartConnect not available to score throw.")
 
         # Handle turn end statuses
         if turn_state == "status:turnComplete":
             try:
-                if self.current_game_type != 'Training':
+                if self.current_game_type != 'Training' and self._ensure_dc_client():
                     self.dc_client.endTurn()
                     if self.dc_client.checkEndGame(self.current_dart_count):
                         self.game_active = False
@@ -168,6 +172,8 @@ class AutoScorer():
         tk.Button(controls, text="End Turn", command=self.manual_end_turn).grid(row=1, column=0, padx=5, pady=2, sticky="we")
         tk.Button(controls, text="End Game", command=self.stop_game).grid(row=1, column=1, padx=5, pady=2, sticky="we")
         tk.Button(controls, text="Start/Restart AutoDarts", command=self._ui_restart_autodarts).grid(row=1, column=2, padx=5, pady=2, sticky="we")
+        tk.Button(controls, text="Open DartConnect", command=self._ui_open_dartconnect).grid(row=2, column=0, padx=5, pady=4, sticky="we")
+        tk.Button(controls, text="Close DartConnect", command=self._ui_close_dartconnect).grid(row=2, column=1, padx=5, pady=4, sticky="we")
 
         status_frame = tk.Frame(self.root, padx=10, pady=10)
         status_frame.pack(fill="x")
@@ -197,7 +203,8 @@ class AutoScorer():
                 self._update_status("Turn timeout reached; ending turn manually.")
                 try:
                     self.autodarts_client.restart_autodarts(on_event=self.handle_autodarts_event)
-                    self.dc_client.endTurn()
+                    if self.dc_client is not None:
+                        self.dc_client.endTurn()
                 except Exception:
                     pass
 
@@ -215,6 +222,9 @@ class AutoScorer():
         self.takeout_in_progress = False
         self.turn_timeout_start = None
         self.autodarts_client.ensure_websocket()
+        if gameType != 'Training':
+            if not self._ensure_dc_client():
+                self._update_status("Could not open DartConnect; scoring may fail.")
         self._update_status(f"Game started: {gameType}")
         print(f"Now Playing {gameType}...\nGAME ON!")
         if gameType == 'Training':
@@ -270,13 +280,15 @@ class AutoScorer():
                 pass
             return
 
+        self._ensure_dc_client()
         try:
-            self.dc_client.endTurn()
-            if self.dc_client.checkEndGame(self.current_dart_count):
-                self.game_active = False
-                self._update_status("Game finished in DartConnect.")
-            else:
-                self._update_status("Turn ended manually.")
+            if self.dc_client is not None:
+                self.dc_client.endTurn()
+                if self.dc_client.checkEndGame(self.current_dart_count):
+                    self.game_active = False
+                    self._update_status("Game finished in DartConnect.")
+                else:
+                    self._update_status("Turn ended manually.")
             self.current_dart_count = 0
         except Exception:
             self._update_status("Could not end turn; please check DartConnect.")
@@ -289,6 +301,33 @@ class AutoScorer():
     def _ui_restart_autodarts(self):
         self.autodarts_client.restart_autodarts(on_event=self.handle_autodarts_event)
         self._update_status("AutoDarts restarted and listening.")
+
+    def _ensure_dc_client(self) -> bool:
+        if self.dc_client is not None:
+            return True
+        try:
+            self.dc_client = DartConnectClient()
+            self._update_status("DartConnect opened.")
+            return True
+        except Exception as exc:
+            self.dc_client = None
+            self._update_status(f"Failed to open DartConnect: {exc}")
+            return False
+
+    def _ui_open_dartconnect(self):
+        self._ensure_dc_client()
+
+    def _ui_close_dartconnect(self):
+        if self.dc_client is None:
+            self._update_status("DartConnect is not open.")
+            return
+        try:
+            self.dc_client.quit()
+            self._update_status("DartConnect closed.")
+        except Exception as exc:
+            self._update_status(f"Error closing DartConnect: {exc}")
+        finally:
+            self.dc_client = None
 
     def run(self):
         try:
