@@ -107,13 +107,12 @@ class AutoScorer():
                 should_score = self.doubled_in
 
             if self.current_game_type == 'Training':
-                if self.training_client is None:
-                    self.training_client = TrainingClient(self.training_log_path)
-                error = self.training_client.log_throw(turn_state)
-                if error:
-                    self._update_status(f"Failed to log training throw: {error}")
-                else:
-                    self._update_status(f"Logged training throw: {turn_state}")
+                if self.training_client is not None:
+                    error = self.training_client.log_throw(turn_state)
+                    if error:
+                        self._update_status(f"Failed to log training throw: {error}")
+                    else:
+                        self._update_status(f"Logged training throw: {turn_state}")
             elif should_score:
                 self.dc_client.handle_turn_state(turn_state, self.current_game_type)
 
@@ -225,14 +224,25 @@ class AutoScorer():
                 initialvalue=self.training_log_path,
                 parent=self.root,
             )
-            if new_path:
-                user_path = new_path.strip()
-                base, ext = os.path.splitext(user_path)
-                suffix = time.strftime("%Y%m%d%H%M%S")
-                if not ext:
-                    ext = ".csv"
-                self.training_log_path = f"{base}_{suffix}{ext}"
-            self.training_client = TrainingClient(self.training_log_path)
+            if not new_path:
+                # User cancelled: abort training start
+                self.game_active = False
+                self.current_game_type = None
+                self.current_dart_count = 0
+                self._update_status("Training game cancelled.")
+                return
+            user_path = new_path.strip()
+            base, ext = os.path.splitext(user_path)
+            suffix = time.strftime("%Y%m%d%H%M%S")
+            if not ext:
+                ext = ".csv"
+            self.training_log_path = f"{base}_{suffix}{ext}"
+            if self.training_client is not None:
+                try:
+                    self.training_client.window.destroy()
+                except Exception:
+                    pass
+            self.training_client = TrainingClient(self.training_log_path, master=self.root)
             self._update_status(f"Game started: {gameType} | logging to {self.training_log_path}")
         self.current_dart_count = 0
 
@@ -241,6 +251,12 @@ class AutoScorer():
         self.current_game_type = None
         self._update_status("Game stopped.")
         self.current_dart_count = 0
+        try:
+            if self.training_client is not None and getattr(self.training_client, "window", None):
+                self.training_client.window.destroy()
+        except Exception:
+            pass
+        self.training_client = None
 
     def manual_end_turn(self):
         if self.current_game_type == 'Training':

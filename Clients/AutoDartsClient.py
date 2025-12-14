@@ -222,9 +222,11 @@ def _print_dart(event: dict):
     x = coords.get("x")
     y = coords.get("y")
 
-    # TODO: Convert x,y from board-relative to mm
     if x is not None and y is not None:
-        turnState = f"dart:{code} {x:.3f} {y:.3f}"
+        board_radius_mm = 170.0
+        x_mm = x * board_radius_mm
+        y_mm = y * board_radius_mm
+        turnState = f"dart:{code} {x_mm:.3f} {y_mm:.3f}"
         print(turnState)
         return turnState
 
